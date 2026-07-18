@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111111">
+<title>Wtech/BPS</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="logo.svg">
+<link rel="apple-touch-icon" href="logo.svg">
+<style>
+body{font-family:Arial,sans-serif;max-width:780px;margin:20px auto;padding:0 16px;background:#f7f7f7;color:#222;}
+h1{font-size:24px;} h2{font-size:18px;margin:0 0 10px 0;}
+.card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:16px;}
+label{display:block;margin-top:12px;font-weight:bold;}
+select,input[type=number]{width:100%;padding:10px;margin-top:6px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.btn{display:inline-block;margin-top:16px;margin-right:8px;padding:12px 18px;border:none;border-radius:10px;background:#111;color:#fff;font-size:16px;cursor:pointer;text-decoration:none;}
+.btn2{background:#444;}
+.btn3{background:#0a6;}
+.btn:disabled{background:#aaa;cursor:default;}
+.ok{padding:12px;background:#e8f7e8;border:1px solid #b7e0b7;border-radius:8px;}
+.err{padding:12px;background:#fbe8e8;border:1px solid #e0b7b7;border-radius:8px;}
+.small{color:#555;font-size:14px;}
+.tb{padding:6px 14px;margin-right:6px;border:none;border-radius:8px;background:#e5e5e5;color:#222;font-size:14px;cursor:pointer;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;}
+@media (max-width:600px){.row,.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<img src="logo.svg" alt="BPS" style="display:block;height:auto;width:auto;max-width:220px;max-height:110px;margin:4px auto 20px;">
+
+<div class="card" id="connCard">
+<h2>Connexion Bluetooth</h2>
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+<button type="button" class="btn" id="btnConnect" style="margin-top:0;" onclick="connect()">Connecter</button>
+<span id="connStatus" class="small">Non connecte</span>
+</div>
+<div id="bleUnsupported" class="err small" style="margin-top:12px;display:none;">
+Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android.
+</div>
+</div>
+
+<div class="card"><h2>Vitesse GPS</h2>
+<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
+<span id="spd" style="font-size:42px;font-weight:bold;">--</span>
+<span class="small">km/h</span>
+<span id="meta" class="small" style="margin-left:auto"></span>
+</div>
+<div style="margin-bottom:8px;">
+<span class="small">Fenetre : </span>
+<button type="button" class="tb" id="w5" onclick="setWin(5)">5 s</button>
+<button type="button" class="tb" id="w10" onclick="setWin(10)">10 s</button>
+<button type="button" class="tb" id="w30" onclick="setWin(30)">30 s</button>
+</div>
+<canvas id="cv" width="720" height="240" style="width:100%;height:auto;"></canvas>
+</div>
+
+<div class="card"><h2>Performance (0-1320 pieds)</h2>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+<button type="button" class="btn" style="margin-top:0;" onclick="perfReset()">Reset</button>
+<button type="button" class="btn btn2" style="margin-top:0;" onclick="perfSim()">Course simulee</button>
+<label class="small" style="display:flex;align-items:center;gap:6px;margin:0;font-weight:normal;">Offset rollout
+<select id="ofs" onchange="setOfs()" style="width:auto;padding:6px;margin:0;"></select></label>
+<span id="perfSt" class="small" style="font-size:15px;">--</span>
+</div>
+<div class="grid">
+<div class="small">60 pieds</div><div><b id="p60">--</b></div>
+<div class="small">330 pieds</div><div><b id="p330">--</b></div>
+<div class="small">660 pieds (1/8 mi)</div><div><b id="p660">--</b></div>
+<div class="small">1320 pieds (1/4 mi)</div><div><b id="p1320">--</b></div>
+</div>
+</div>
+
+<div class="card"><h2>Etat</h2><div class="grid" id="etatGrid">
+<div class="small">Connexion</div><div><b>connectez-vous pour voir l'etat</b></div>
+</div></div>
+
+<div class="card"><h2>Configuration</h2>
+<form id="cfgForm" onsubmit="return submitConfig(event)">
+
+<label for="mode">Mode CAN</label>
+<select id="mode" name="mode">
+<option value="LINK">Link AEM 30-2206</option>
+<option value="FUELTECH">FuelTech</option>
+<option value="VAG_WHEELSPEED">VAG Wheel Speed</option>
+<option value="HOLLEY">Holley Expander (injection vitesse)</option>
+</select>
+
+<label for="hid">ID expander Holley (0-2047, # module cote Holley EFI)</label>
+<input id="hid" name="hid" type="number" min="0" max="2047" value="1500">
+
+<label for="gsrc">Source GPS (redemarrage requis)</label>
+<select id="gsrc" name="gsrc">
+<option value="DRAGY">Dragy Lite (simple)</option>
+<option value="DUAL">Dual u-blox (moyenne des 2, GPIO25/26 pour GPS B)</option>
+</select>
+
+<label for="grate">Cadence GPS</label>
+<select id="grate" name="grate">
+<option value="100">10 Hz</option>
+<option value="50">20 Hz</option>
+<option value="40">25 Hz</option>
+<option value="33">30 Hz (plafond module)</option>
+<option value="0">Esclave (ecoute seule, n'impose rien)</option>
+</select>
+
+<label for="dynm">Modele dynamique u-blox (mode dual seulement, le Dragy garde sa config)</label>
+<select id="dynm" name="dynm">
+<option value="4">Automobile</option>
+<option value="6">Airborne &lt;1g</option>
+<option value="7">Airborne &lt;2g</option>
+<option value="8">Airborne &lt;4g</option>
+</select>
+
+<label style="margin-top:16px;"><input type="checkbox" id="t50" name="t50"> Simuler 50 km/h (tous les modes de sortie)</label>
+
+<div class="row">
+<div>
+<label for="tzh">Fuseau horaire - heures</label>
+<input id="tzh" name="tzh" type="number" min="-23" max="23" value="-5">
+</div>
+<div>
+<label for="tzm">Fuseau horaire - minutes</label>
+<input id="tzm" name="tzm" type="number" min="-59" max="59" value="0">
+</div>
+</div>
+
+<label style="margin-top:16px;"><input type="checkbox" id="ltcan" name="ltcan"> Utiliser l'heure locale pour le CAN</label>
+
+<button class="btn" name="action" value="save" type="submit">Sauvegarder</button>
+<button class="btn btn3" name="action" value="save_reboot" type="submit">Sauvegarder + redemarrer</button>
+<button class="btn btn2" name="action" value="reboot" type="submit">Redemarrer</button>
+
+<div id="cfgMsg" style="margin-top:12px;"></div>
+</form>
+</div>
+
+<script>
+// =====================================================
+// BLE : memes UUIDs que le firmware Wtech_BPS_Dragy_v5.ino
+// =====================================================
+const SVC_UUID      = '7a1e0000-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_TELEMETRY = '7a1e0001-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_STATE     = '7a1e0002-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_CONFIG    = '7a1e0003-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_COMMAND   = '7a1e0004-9f2b-4b8e-8f21-3d6c9a1e0000';
+
+let bleDevice = null, bleServer = null;
+let chrTelemetry = null, chrState = null, chrConfig = null, chrCommand = null;
+let stateTimer = null;
+
+const dec = new TextDecoder();
+const enc = new TextEncoder();
+
+function setStatus(txt) { document.getElementById('connStatus').textContent = txt; }
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    document.getElementById('bleUnsupported').style.display = 'block';
+    return;
+  }
+  try {
+    setStatus('Recherche...');
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SVC_UUID] }],
+      optionalServices: [SVC_UUID]
+    });
+    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+    setStatus('Connexion...');
+    bleServer = await bleDevice.gatt.connect();
+    const svc = await bleServer.getPrimaryService(SVC_UUID);
+
+    chrTelemetry = await svc.getCharacteristic(CHR_TELEMETRY);
+    chrState     = await svc.getCharacteristic(CHR_STATE);
+    chrConfig    = await svc.getCharacteristic(CHR_CONFIG);
+    chrCommand   = await svc.getCharacteristic(CHR_COMMAND);
+
+    await chrTelemetry.startNotifications();
+    chrTelemetry.addEventListener('characteristicvaluechanged', onTelemetry);
+
+    await refreshState();
+    await refreshConfig();
+    stateTimer = setInterval(refreshState, 3000);
+
+    document.getElementById('btnConnect').textContent = 'Deconnecter';
+    document.getElementById('btnConnect').onclick = disconnect;
+    setStatus('Connecte a ' + (bleDevice.name || 'BPS-GPS'));
+  } catch (e) {
+    console.error(e);
+    setStatus('Echec : ' + e.message);
+  }
+}
+
+function disconnect() {
+  if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+}
+
+function onDisconnected() {
+  if (stateTimer) { clearInterval(stateTimer); stateTimer = null; }
+  chrTelemetry = chrState = chrConfig = chrCommand = null;
+  document.getElementById('btnConnect').textContent = 'Connecter';
+  document.getElementById('btnConnect').onclick = connect;
+  setStatus('Deconnecte');
+}
+
+async function writeCommand(cmd) {
+  if (!chrCommand) return;
+  await chrCommand.writeValueWithResponse(enc.encode(cmd));
+}
+
+// =====================================================
+// Telemetrie (notify ~5Hz) -- vitesse + graphique + perf
+// =====================================================
+var win = 10000, buf = [], nowSrv = 0;
+var ofs = 0;
+
+(function () {
+  var s = document.getElementById('ofs'), h = '<option value="0">aucun</option>';
+  for (var v = 1; v <= 20; v++) { var x = (v / 10).toFixed(1); h += '<option value="' + x + '">-' + x + ' s</option>'; }
+  s.innerHTML = h;
+})();
+
+function syncSel() {
+  var s = document.getElementById('ofs'), w = (ofs < 0.05) ? '0' : ofs.toFixed(1);
+  if (s.value != w) s.value = w;
+}
+
+async function setOfs() {
+  ofs = parseFloat(document.getElementById('ofs').value);
+  await writeCommand('rollout:' + Math.round(ofs * 1000));
+}
+
+function fmtT(ms) { return ms == null ? '--' : (ms / 1000 - ofs).toFixed(2) + ' s'; }
+function fmtV(v) { return v == null ? '' : (' @ ' + (v / 100 / 1.609344).toFixed(1) + ' mph'); }
+function fmtE(e) { return e == null ? '' : (' | ecart pos ' + (e > 0 ? '+' : '') + e.toFixed(1) + ' ft'); }
+function perfLabel(st, el) {
+  if (st == 'ARMED') return 'Arme -- lancez !';
+  if (st == 'RUNNING') return 'En course... ' + (el / 1000).toFixed(1) + ' s';
+  if (st == 'DONE') return 'Termine';
+  if (st == 'TIMEOUT') return 'Abandon (20 s)';
+  return 'En attente du reset';
+}
+
+async function perfReset() { await writeCommand('reset'); }
+async function perfSim() { await writeCommand('sim'); }
+
+function onTelemetry(ev) {
+  var j;
+  try { j = JSON.parse(dec.decode(ev.target.value)); } catch (e) { return; }
+
+  if (j.now < nowSrv) { buf = []; }
+  nowSrv = j.now;
+  buf.push([j.now, j.v]);
+  while (buf.length && buf[0][0] < nowSrv - 31000) buf.shift();
+
+  document.getElementById('spd').textContent = (j.v / 100).toFixed(1);
+  document.getElementById('meta').textContent = (j.valid ? 'fix OK' : 'pas de fix') + ' | ' + j.sats + ' sats | ' + j.hz + ' Hz';
+  draw();
+
+  var p = j.perf;
+  if (p.roll != null) { var rr = p.roll / 1000; if (Math.abs(rr - ofs) > 0.001) { ofs = rr; syncSel(); } }
+  document.getElementById('perfSt').textContent = (p.sim ? 'SIM — ' : '') + perfLabel(p.st, p.el);
+  document.getElementById('p60').textContent = fmtT(p.t60);
+  document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtE(p.e330);
+  document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtE(p.e660);
+  document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtE(p.e1320);
+}
+
+function setWin(s) {
+  win = s * 1000;
+  ['w5', 'w10', 'w30'].forEach(function (id) {
+    var b = document.getElementById(id), on = (id == 'w' + s);
+    b.style.background = on ? '#111' : '#e5e5e5'; b.style.color = on ? '#fff' : '#222';
+  });
+  draw();
+}
+function niceMax(v) { var c = [5, 10, 20, 30, 50, 80, 100, 150, 200, 250, 300]; for (var i = 0; i < c.length; i++) { if (v <= c[i]) return c[i]; } return 300; }
+function draw() {
+  var cv = document.getElementById('cv'), x = cv.getContext('2d'), w = cv.width, h = cv.height;
+  var L = 44, B = 22, T = 8, R = 8; x.clearRect(0, 0, w, h); if (!nowSrv) return;
+  var t0 = nowSrv - win; var vm = 5;
+  for (var i = 0; i < buf.length; i++) { if (buf[i][0] >= t0 && buf[i][1] / 100 > vm) vm = buf[i][1] / 100; }
+  var ym = niceMax(vm * 1.05);
+  x.strokeStyle = '#ddd'; x.fillStyle = '#666'; x.font = '11px Arial'; x.textAlign = 'right'; x.lineWidth = 1;
+  for (var g = 0; g <= 5; g++) { var yy = T + (h - T - B) * g / 5; x.beginPath(); x.moveTo(L, yy); x.lineTo(w - R, yy); x.stroke(); x.fillText(Math.round(ym * (5 - g) / 5), L - 5, yy + 4); }
+  x.textAlign = 'center';
+  for (var g = 0; g <= 5; g++) { var xx = L + (w - L - R) * g / 5; x.fillText((-win / 1000 * (5 - g) / 5).toFixed(0) + 's', xx, h - 6); }
+  x.strokeStyle = '#0a6'; x.lineWidth = 2; x.beginPath(); var st = false;
+  for (var i = 0; i < buf.length; i++) { var p = buf[i]; if (p[0] < t0) continue; var px = L + (p[0] - t0) / win * (w - L - R); var py = T + (h - T - B) * (1 - (p[1] / 100) / ym); if (!st) { x.moveTo(px, py); st = true; } else { x.lineTo(px, py); } }
+  x.stroke();
+}
+setWin(10);
+
+// =====================================================
+// Etat (lecture seule, rafraichie toutes les 3s pendant la connexion)
+// =====================================================
+async function refreshState() {
+  if (!chrState) return;
+  var j;
+  try { j = JSON.parse(dec.decode(await chrState.readValue())); } catch (e) { return; }
+
+  var rows = [];
+  rows.push(['Mode actif', j.mode]);
+  rows.push(['Bitrate CAN', j.bitrate]);
+  rows.push(['Source GPS', j.gpsSource]);
+  if (j.dual) {
+    rows.push(['GPS A', (j.gpsA.ok ? 'OK' : 'bring-up') + ', ' + j.gpsA.hz + ' Hz, ' + j.gpsA.sats + ' sats, fix ' + j.gpsA.fix]);
+    rows.push(['GPS B', (j.gpsB.ok ? 'OK' : 'bring-up') + ', ' + j.gpsB.hz + ' Hz, ' + j.gpsB.sats + ' sats, fix ' + j.gpsB.fix]);
+    if (j.speedDiffAB != null) rows.push(['Ecart vitesse A-B', j.speedDiffAB + ' km/h']);
+    rows.push(['Modele dynamique', j.dynModel]);
+    rows.push(['Constellations', j.constellations]);
+  } else {
+    rows.push(['Dragy', j.dragy]);
+    rows.push(['NAV-PVT mesure', j.navPvtHz + ' Hz' + (j.navPvtTargetHz ? ' (cible ' + j.navPvtTargetHz + ')' : ' (cadence libre)')]);
+  }
+  if (j.holley) {
+    rows.push(['Holley ECU', (j.holley.alive ? 'detecte' : 'absent') + (j.holley.configured ? ', configure' : '') + ' (ID ' + j.holley.id + ')']);
+    if (j.holley.injA != null) rows.push(['Holley injection', 'A ' + j.holley.injA + ' Hz | B ' + j.holley.injB + ' Hz | moy ' + j.holley.injHz + ' Hz']);
+    else rows.push(['Holley injection', j.holley.injHz + ' Hz']);
+    rows.push(['Holley entrees (config ECU)', j.holley.slots]);
+    rows.push(['Holley canal temps', j.holley.timeChan + ' s']);
+  }
+  rows.push(['GPS valid', (j.gpsValid ? 'YES' : 'NO') + ' (fix ' + j.fixType + ', ' + j.satellites + ' sats)']);
+  rows.push(['Heure GPS UTC', j.utc]);
+  rows.push(['Heure locale', j.local]);
+  rows.push(['Vitesse GPS km/h', j.speedKmh]);
+  rows.push(['Altitude ft', j.altitudeFt]);
+  rows.push(['Simulation 50 km/h', j.sim50 ? 'ON' : 'OFF']);
+
+  var html = '';
+  rows.forEach(function (r) { html += "<div class='small'>" + r[0] + "</div><div><b>" + r[1] + "</b></div>"; });
+  document.getElementById('etatGrid').innerHTML = html;
+}
+
+// =====================================================
+// Configuration (lecture au connect, ecriture au submit)
+// =====================================================
+async function refreshConfig() {
+  if (!chrConfig) return;
+  var j;
+  try { j = JSON.parse(dec.decode(await chrConfig.readValue())); } catch (e) { return; }
+  document.getElementById('mode').value = j.mode;
+  document.getElementById('hid').value = j.hid;
+  document.getElementById('gsrc').value = j.gsrc;
+  document.getElementById('grate').value = j.grate;
+  document.getElementById('dynm').value = j.dynm;
+  document.getElementById('t50').checked = !!j.t50;
+  document.getElementById('tzh').value = j.tzh;
+  document.getElementById('tzm').value = j.tzm;
+  document.getElementById('ltcan').checked = !!j.ltcan;
+}
+
+async function submitConfig(ev) {
+  ev.preventDefault();
+  var msg = document.getElementById('cfgMsg');
+  if (!chrConfig || !chrCommand) {
+    msg.innerHTML = "<div class='err'>Non connecte au module BLE.</div>";
+    return false;
+  }
+  var action = ev.submitter ? ev.submitter.value : 'save';
+
+  if (action === 'reboot') {
+    msg.innerHTML = "<div class='ok'>Redemarrage demande...</div>";
+    await writeCommand('reboot');
+    return false;
+  }
+
+  var cfg = {
+    mode: document.getElementById('mode').value,
+    hid: parseInt(document.getElementById('hid').value, 10),
+    gsrc: document.getElementById('gsrc').value,
+    grate: parseInt(document.getElementById('grate').value, 10),
+    dynm: parseInt(document.getElementById('dynm').value, 10),
+    t50: document.getElementById('t50').checked ? 1 : 0,
+    tzh: parseInt(document.getElementById('tzh').value, 10),
+    tzm: parseInt(document.getElementById('tzm').value, 10),
+    ltcan: document.getElementById('ltcan').checked ? 1 : 0
+  };
+
+  try {
+    await chrConfig.writeValueWithResponse(enc.encode(JSON.stringify(cfg)));
+    msg.innerHTML = "<div class='ok'>Configuration sauvegardee.</div>";
+    await refreshState();
+    if (action === 'save_reboot') {
+      msg.innerHTML = "<div class='ok'>Configuration sauvegardee. Redemarrage demande...</div>";
+      await writeCommand('reboot');
+    }
+  } catch (e) {
+    msg.innerHTML = "<div class='err'>Echec : " + e.message + "</div>";
+  }
+  return false;
+}
+
+if (!navigator.bluetooth) document.getElementById('bleUnsupported').style.display = 'block';
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(function () {});
+}
+</script>
+</body>
+</html>
