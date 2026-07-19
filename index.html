@@ -38,8 +38,15 @@ select,input[type=number]{width:100%;padding:10px;margin-top:6px;border:1px soli
 <span id="connStatus" class="small">Non connecte</span>
 </div>
 <div id="bleUnsupported" class="err small" style="margin-top:12px;display:none;">
-Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android.
+Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou sur iPhone l'app <b>Bluefy</b> (App Store — navigateur tiers qui ajoute le Bluetooth Web, non officiel Apple).
 </div>
+</div>
+
+<div class="card">
+<h2>Mise a jour du firmware</h2>
+<p class="small">Bascule le module en point d'acces WiFi temporaire pour televerser un nouveau firmware -- pas besoin de cable USB. La connexion BLE sera coupee le temps de la mise a jour.</p>
+<button type="button" class="btn btn2" id="btnOta" style="margin-top:0;" onclick="startOta()">Mode mise a jour</button>
+<div id="otaMsg" style="margin-top:12px;"></div>
 </div>
 
 <div class="card"><h2>Vitesse GPS</h2>
@@ -187,7 +194,7 @@ async function connect() {
 
     document.getElementById('btnConnect').textContent = 'Deconnecter';
     document.getElementById('btnConnect').onclick = disconnect;
-    setStatus('Connecte a ' + (bleDevice.name || 'BPS-GPS'));
+    setStatus('Connecte a ' + (bleDevice.name || 'BPS_XTRM'));
   } catch (e) {
     console.error(e);
     setStatus('Echec : ' + e.message);
@@ -209,6 +216,23 @@ function onDisconnected() {
 async function writeCommand(cmd) {
   if (!chrCommand) return;
   await chrCommand.writeValueWithResponse(enc.encode(cmd));
+}
+
+async function startOta() {
+  var msg = document.getElementById('otaMsg');
+  if (!chrCommand) {
+    msg.innerHTML = "<div class='err'>Non connecte au module BLE.</div>";
+    return;
+  }
+  try {
+    await writeCommand('ota');
+    msg.innerHTML = "<div class='ok'>Mode mise a jour active. Le BLE va se couper.<br>" +
+      "1. Allez dans les reglages WiFi du telephone/ordi, connectez-vous a <b>" + "BPS-GPS-OTA" + "</b>.<br>" +
+      "2. Ouvrez <b>http://192.168.4.1/update</b> dans un navigateur.<br>" +
+      "3. Selectionnez le fichier .bin compile et televersez.</div>";
+  } catch (e) {
+    msg.innerHTML = "<div class='err'>Echec : " + e.message + "</div>";
+  }
 }
 
 // =====================================================
@@ -351,7 +375,17 @@ async function refreshConfig() {
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
   document.getElementById('ltcan').checked = !!j.ltcan;
+  syncDynmState();
 }
+
+function syncDynmState() {
+  var dual = document.getElementById('gsrc').value === 'DUAL';
+  var dynm = document.getElementById('dynm');
+  dynm.disabled = !dual;
+  if (!dual) dynm.value = '4';
+}
+document.getElementById('gsrc').addEventListener('change', syncDynmState);
+syncDynmState();
 
 async function submitConfig(ev) {
   ev.preventDefault();
