@@ -1,5 +1,5 @@
-const CACHE = 'bps-gps-v1';
-const ASSETS = ['./', './index.html', './manifest.json', './logo.svg'];
+const CACHE = 'bps-gps-v2';
+const ASSETS = ['./', './index.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
