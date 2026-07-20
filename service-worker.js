@@ -1,4 +1,4 @@
-const CACHE = 'bps-gps-v2';
+const CACHE = 'bps-gps-v3';
 const ASSETS = ['./', './index.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {
@@ -13,6 +13,19 @@ self.addEventListener('activate', (ev) => {
   self.clients.claim();
 });
 
+// Reseau d'abord, cache en secours (hors-ligne seulement) : les mises a jour
+// publiees sur GitHub Pages sont visibles au prochain chargement, sans purge
+// manuelle du cache. L'ancienne strategie cache-d'abord servait l'index.html
+// perime indefiniment sur Android (Chrome), pendant que Bluefy/iOS, qui ne
+// persiste pas le service worker pareil, rechargeait la page fraiche.
 self.addEventListener('fetch', (ev) => {
-  ev.respondWith(caches.match(ev.request).then((hit) => hit || fetch(ev.request)));
+  ev.respondWith(
+    fetch(ev.request)
+      .then((resp) => {
+        const copy = resp.clone();
+        caches.open(CACHE).then((c) => c.put(ev.request, copy)).catch(() => {});
+        return resp;
+      })
+      .catch(() => caches.match(ev.request))
+  );
 });
