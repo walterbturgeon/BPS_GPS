@@ -50,9 +50,11 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 </div>
 
 <div class="card"><h2>Vitesse GPS</h2>
-<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
+<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
 <span id="spd" style="font-size:42px;font-weight:bold;">--</span>
 <span class="small">km/h</span>
+<span id="gval" style="font-size:22px;font-weight:bold;color:#c60;margin-left:14px;">--</span>
+<span class="small">G</span>
 <span id="meta" class="small" style="margin-left:auto"></span>
 </div>
 <div style="margin-bottom:8px;">
@@ -60,6 +62,7 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <button type="button" class="tb" id="w5" onclick="setWin(5)">5 s</button>
 <button type="button" class="tb" id="w10" onclick="setWin(10)">10 s</button>
 <button type="button" class="tb" id="w30" onclick="setWin(30)">30 s</button>
+<span class="small" style="margin-left:14px;"><span style="display:inline-block;width:10px;height:10px;background:#0a6;border-radius:2px;"></span> vitesse &nbsp; <span style="display:inline-block;width:10px;height:10px;background:#c60;border-radius:2px;"></span> G</span>
 </div>
 <canvas id="cv" width="720" height="240" style="width:100%;height:auto;"></canvas>
 </div>
@@ -259,6 +262,7 @@ async function setOfs() {
 
 function fmtT(ms) { return ms == null ? '--' : (ms / 1000 - ofs).toFixed(2) + ' s'; }
 function fmtV(v) { return v == null ? '' : (' @ ' + (v / 100 / 1.609344).toFixed(1) + ' mph'); }
+function fmtVRaw(v) { return v == null ? '' : (' (brut ' + (v / 100 / 1.609344).toFixed(1) + ')'); }
 function fmtE(e) { return e == null ? '' : (' | ecart pos ' + (e > 0 ? '+' : '') + e.toFixed(1) + ' ft'); }
 function perfLabel(st, el) {
   if (st == 'ARMED') return 'Arme -- lancez !';
@@ -277,10 +281,11 @@ function onTelemetry(ev) {
 
   if (j.now < nowSrv) { buf = []; }
   nowSrv = j.now;
-  buf.push([j.now, j.v]);
+  buf.push([j.now, j.v, j.g]);
   while (buf.length && buf[0][0] < nowSrv - 31000) buf.shift();
 
   document.getElementById('spd').textContent = (j.v / 100).toFixed(1);
+  document.getElementById('gval').textContent = (j.g >= 0 ? '+' : '') + j.g.toFixed(2);
   document.getElementById('meta').textContent = (j.valid ? 'fix OK' : 'pas de fix') + ' | ' + j.sats + ' sats | ' + j.hz + ' Hz';
   draw();
 
@@ -288,9 +293,9 @@ function onTelemetry(ev) {
   if (p.roll != null) { var rr = p.roll / 1000; if (Math.abs(rr - ofs) > 0.001) { ofs = rr; syncSel(); } }
   document.getElementById('perfSt').textContent = (p.sim ? 'SIM — ' : '') + perfLabel(p.st, p.el);
   document.getElementById('p60').textContent = fmtT(p.t60);
-  document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtE(p.e330);
-  document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtE(p.e660);
-  document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtE(p.e1320);
+  document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtVRaw(p.v330raw) + fmtE(p.e330);
+  document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtVRaw(p.v660raw) + fmtE(p.e660);
+  document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtVRaw(p.v1320raw) + fmtE(p.e1320);
 }
 
 function setWin(s) {
@@ -302,18 +307,33 @@ function setWin(s) {
   draw();
 }
 function niceMax(v) { var c = [5, 10, 20, 30, 50, 80, 100, 150, 200, 250, 300]; for (var i = 0; i < c.length; i++) { if (v <= c[i]) return c[i]; } return 300; }
+// axe G fixe (pas d'auto-echelle) : -3 a +3 G, assez large pour un lancer
+// de drag (accel) et une decel/panne moteur, et comparable d'un passage a
+// l'autre puisque l'echelle ne bouge pas.
+var G_MIN = -3, G_MAX = 3;
 function draw() {
   var cv = document.getElementById('cv'), x = cv.getContext('2d'), w = cv.width, h = cv.height;
-  var L = 44, B = 22, T = 8, R = 8; x.clearRect(0, 0, w, h); if (!nowSrv) return;
+  var L = 44, B = 22, T = 8, R = 34; x.clearRect(0, 0, w, h); if (!nowSrv) return;
   var t0 = nowSrv - win; var vm = 5;
   for (var i = 0; i < buf.length; i++) { if (buf[i][0] >= t0 && buf[i][1] / 100 > vm) vm = buf[i][1] / 100; }
   var ym = niceMax(vm * 1.05);
   x.strokeStyle = '#ddd'; x.fillStyle = '#666'; x.font = '11px Arial'; x.textAlign = 'right'; x.lineWidth = 1;
   for (var g = 0; g <= 5; g++) { var yy = T + (h - T - B) * g / 5; x.beginPath(); x.moveTo(L, yy); x.lineTo(w - R, yy); x.stroke(); x.fillText(Math.round(ym * (5 - g) / 5), L - 5, yy + 4); }
-  x.textAlign = 'center';
+  // axe G a droite (echelle independante -3..+3, meme repere Y que la vitesse)
+  x.fillStyle = '#c60'; x.textAlign = 'left';
+  for (var g = 0; g <= 5; g++) { var yy = T + (h - T - B) * g / 5; var gv = G_MAX - (G_MAX - G_MIN) * g / 5; x.fillText(gv.toFixed(0), w - R + 6, yy + 4); }
+  x.fillStyle = '#666'; x.textAlign = 'center';
   for (var g = 0; g <= 5; g++) { var xx = L + (w - L - R) * g / 5; x.fillText((-win / 1000 * (5 - g) / 5).toFixed(0) + 's', xx, h - 6); }
+  // ligne zero G (repere visuel)
+  var zy = T + (h - T - B) * (1 - (0 - G_MIN) / (G_MAX - G_MIN));
+  x.strokeStyle = '#eecfae'; x.lineWidth = 1; x.beginPath(); x.moveTo(L, zy); x.lineTo(w - R, zy); x.stroke();
+  // vitesse (vert)
   x.strokeStyle = '#0a6'; x.lineWidth = 2; x.beginPath(); var st = false;
   for (var i = 0; i < buf.length; i++) { var p = buf[i]; if (p[0] < t0) continue; var px = L + (p[0] - t0) / win * (w - L - R); var py = T + (h - T - B) * (1 - (p[1] / 100) / ym); if (!st) { x.moveTo(px, py); st = true; } else { x.lineTo(px, py); } }
+  x.stroke();
+  // G (orange, lisse ~200ms cote firmware, axe secondaire -3..+3)
+  x.strokeStyle = '#c60'; x.lineWidth = 2; x.beginPath(); st = false;
+  for (var i = 0; i < buf.length; i++) { var p = buf[i]; if (p[0] < t0 || p[2] == null) continue; var px = L + (p[0] - t0) / win * (w - L - R); var py = T + (h - T - B) * (1 - (p[2] - G_MIN) / (G_MAX - G_MIN)); if (!st) { x.moveTo(px, py); st = true; } else { x.lineTo(px, py); } }
   x.stroke();
 }
 setWin(10);
