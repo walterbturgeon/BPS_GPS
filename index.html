@@ -86,6 +86,15 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 </div>
 </div>
 
+<div class="card"><h2>Archivage des runs</h2>
+<p class="small">Recupere tous les passages enregistres en RAM sur le module (jusqu'a 8) et les envoie directement sur GitHub.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+<button type="button" class="btn btn3" id="btnGhRuns" style="margin-top:0;" onclick="fetchAndSendToGithub()">Envoyer sur GitHub</button>
+</div>
+<div id="dumpStatus" class="small" style="margin-top:10px;"></div>
+<div class="small" style="margin-top:6px;"><a href="#" onclick="resetGhToken();return false;">changer le jeton GitHub</a></div>
+</div>
+
 <div class="card"><h2>Etat</h2><div class="grid" id="etatGrid">
 <div class="small">Connexion</div><div><b>connectez-vous pour voir l'etat</b></div>
 </div></div>
@@ -159,10 +168,12 @@ const CHR_TELEMETRY = '7a1e0001-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_STATE     = '7a1e0002-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_CONFIG    = '7a1e0003-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_COMMAND   = '7a1e0004-9f2b-4b8e-8f21-3d6c9a1e0000';
+const CHR_DUMP      = '7a1e0005-9f2b-4b8e-8f21-3d6c9a1e0000';
 
 let bleDevice = null, bleServer = null;
-let chrTelemetry = null, chrState = null, chrConfig = null, chrCommand = null;
+let chrTelemetry = null, chrState = null, chrConfig = null, chrCommand = null, chrDump = null;
 let stateTimer = null;
+let boardIdCache = '';
 
 const dec = new TextDecoder();
 const enc = new TextEncoder();
@@ -190,9 +201,12 @@ async function connect() {
     chrState     = await svc.getCharacteristic(CHR_STATE);
     chrConfig    = await svc.getCharacteristic(CHR_CONFIG);
     chrCommand   = await svc.getCharacteristic(CHR_COMMAND);
+    chrDump      = await svc.getCharacteristic(CHR_DUMP);
 
     await chrTelemetry.startNotifications();
     chrTelemetry.addEventListener('characteristicvaluechanged', onTelemetry);
+    await chrDump.startNotifications();
+    chrDump.addEventListener('characteristicvaluechanged', onDumpChunk);
 
     await refreshState();
     await refreshConfig();
@@ -213,7 +227,9 @@ function disconnect() {
 
 function onDisconnected() {
   if (stateTimer) { clearInterval(stateTimer); stateTimer = null; }
-  chrTelemetry = chrState = chrConfig = chrCommand = null;
+  chrTelemetry = chrState = chrConfig = chrCommand = chrDump = null;
+  if (dumpTimeoutId) { clearTimeout(dumpTimeoutId); dumpTimeoutId = null; }
+  dumpResolve = null;
   document.getElementById('btnConnect').textContent = 'Connecter';
   document.getElementById('btnConnect').onclick = connect;
   setStatus('Deconnecte');
@@ -222,6 +238,102 @@ function onDisconnected() {
 async function writeCommand(cmd) {
   if (!chrCommand) return;
   await chrCommand.writeValueWithResponse(enc.encode(cmd));
+}
+
+// =====================================================
+// [v6.5] Archivage des runs : recuperation BLE (chrDump, par blocs) +
+// telechargement local + envoi direct sur GitHub (jeton garde dans le
+// localStorage du telephone, jamais sur l'ESP32 -- voir memoire projet
+// pour la discussion de conception).
+// =====================================================
+const GH_REPO = 'walterbturgeon/BPS_GPS';
+const GH_BRANCH = 'main';
+let dumpBuf = '', dumpResolve = null, dumpTimeoutId = null;
+let lastDumpText = '';
+
+function onDumpChunk(ev) {
+  var chunk = dec.decode(ev.target.value);
+  if (chunk === '[BLE_DUMP_END]') {
+    if (dumpTimeoutId) { clearTimeout(dumpTimeoutId); dumpTimeoutId = null; }
+    if (dumpResolve) { var r = dumpResolve; dumpResolve = null; r(dumpBuf); }
+    return;
+  }
+  dumpBuf += chunk;
+}
+
+// Demande le dump au module et attend le marqueur de fin (chunk par chunk
+// via onDumpChunk) -- delai max 20s, largement suffisant pour 8 runs pleins.
+function fetchRunsBle() {
+  return new Promise(function (resolve, reject) {
+    if (!chrDump || !chrCommand) { reject(new Error('non connecte')); return; }
+    dumpBuf = '';
+    dumpResolve = resolve;
+    dumpTimeoutId = setTimeout(function () {
+      dumpResolve = null;
+      reject(new Error('delai depasse (20s) -- reessayer'));
+    }, 20000);
+    writeCommand('dumpble').catch(function (e) {
+      if (dumpTimeoutId) { clearTimeout(dumpTimeoutId); dumpTimeoutId = null; }
+      dumpResolve = null;
+      reject(e);
+    });
+  });
+}
+
+function getGhToken() { return localStorage.getItem('ghToken') || ''; }
+function resetGhToken() {
+  localStorage.removeItem('ghToken');
+  document.getElementById('dumpStatus').textContent = 'Jeton GitHub efface -- redemande au prochain envoi.';
+}
+
+// API Contents GitHub : PUT cree/remplace un fichier. Le jeton (PAT avec
+// droits Contents sur le repo) est demande une fois puis garde en
+// localStorage sur CE telephone -- jamais transmis a l'ESP32.
+async function uploadToGithub(text, board) {
+  var token = getGhToken();
+  if (!token) {
+    token = prompt('Jeton GitHub (Personal Access Token, droits Contents sur ' + GH_REPO + ') :');
+    if (!token) throw new Error('jeton requis');
+    localStorage.setItem('ghToken', token);
+  }
+  var ts = new Date().toISOString().replace(/[:.]/g, '-');
+  var path = 'runs/' + (board || 'unknown') + '_' + ts + '.txt';
+  var b64 = btoa(unescape(encodeURIComponent(text)));
+  var res = await fetch('https://api.github.com/repos/' + GH_REPO + '/contents/' + path, {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ message: 'runs: ' + path, content: b64, branch: GH_BRANCH })
+  });
+  if (!res.ok) {
+    if (res.status === 401) { localStorage.removeItem('ghToken'); }
+    var err = await res.text();
+    throw new Error('GitHub ' + res.status + ' : ' + err);
+  }
+  return path;
+}
+
+// Un seul bouton : recupere les runs via BLE puis les envoie directement sur
+// GitHub, sans etape de telechargement/stockage local intermediaire.
+async function fetchAndSendToGithub() {
+  var st = document.getElementById('dumpStatus');
+  var btn = document.getElementById('btnGhRuns');
+  btn.disabled = true;
+  st.textContent = 'Recuperation en cours (peut prendre quelques secondes)...';
+  try {
+    lastDumpText = await fetchRunsBle();
+    st.textContent = lastDumpText.length + ' octets recuperes -- envoi vers GitHub...';
+    var m = lastDumpText.match(/board=([0-9A-Fa-f]+)/);
+    var path = await uploadToGithub(lastDumpText, m ? m[1] : 'unknown');
+    st.textContent = 'Envoye sur GitHub : ' + GH_REPO + '/' + path;
+  } catch (e) {
+    st.textContent = 'Echec : ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function startOta() {
