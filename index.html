@@ -214,7 +214,7 @@ async function connect() {
 
     document.getElementById('btnConnect').textContent = 'Deconnecter';
     document.getElementById('btnConnect').onclick = disconnect;
-    setStatus('Connecte a ' + (bleDevice.name || 'BPS_XTRM'));
+    setStatus('Connecte a ' + (bleDevice.name || 'DRAGLOG'));
   } catch (e) {
     console.error(e);
     setStatus('Echec : ' + e.message);
@@ -296,8 +296,15 @@ async function uploadToGithub(text, board) {
     if (!token) throw new Error('jeton requis');
     localStorage.setItem('ghToken', token);
   }
-  var ts = new Date().toISOString().replace(/[:.]/g, '-');
-  var path = 'runs/' + (board || 'unknown') + '_' + ts + '.txt';
+  // runs/<id_esp32>/AAAA/MM/JJ/HH-MM.txt -- dossiers imbriques par date,
+  // faciles a parcourir sur GitHub (heure locale du telephone au moment de l'envoi)
+  var d = new Date();
+  var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  var path = 'runs/' + (board || 'unknown')
+    + '/' + d.getFullYear()
+    + '/' + pad2(d.getMonth() + 1)
+    + '/' + pad2(d.getDate())
+    + '/' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '.txt';
   var b64 = btoa(unescape(encodeURIComponent(text)));
   var res = await fetch('https://api.github.com/repos/' + GH_REPO + '/contents/' + path, {
     method: 'PUT',
