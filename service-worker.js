@@ -1,4 +1,4 @@
-const CACHE = 'bps-gps-v3';
+const CACHE = 'draglog-v7';
 const ASSETS = ['./', './index.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {

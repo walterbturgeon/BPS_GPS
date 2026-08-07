@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#111111">
-<title>Wtech/BPS</title>
+<title>DRAGLOG</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="logo.svg">
 <link rel="apple-touch-icon" href="logo.svg">
@@ -54,9 +54,12 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <span id="spd" style="font-size:42px;font-weight:bold;">--</span>
 <span class="small">km/h</span>
 <span id="gval" style="font-size:22px;font-weight:bold;color:#c60;margin-left:14px;">--</span>
-<span class="small">G</span>
+<span class="small">G (GPS)</span>
+<span id="gimu" style="font-size:22px;font-weight:bold;color:#06c;margin-left:14px;">--</span>
+<span class="small">G (IMU)</span>
 <span id="meta" class="small" style="margin-left:auto"></span>
 </div>
+<div id="imuLine" class="small" style="margin-bottom:8px;display:none;"></div>
 <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
 <span class="small">Fenetre : </span>
 <button type="button" class="tb" id="w5" onclick="setWin(5)">5 s</button>
@@ -86,8 +89,21 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 </div>
 </div>
 
+<div class="card"><h2>Calibration IMU</h2>
+<div class="grid" id="calGrid">
+<div class="small">Etat</div><div><b id="calState">--</b></div>
+</div>
+<button type="button" class="btn btn3" id="btnCal" onclick="doCalib()">Calibrer l'IMU</button>
+<div id="calMsg" class="small" style="margin-top:10px;"></div>
+<p class="small" style="margin-top:8px;">
+Vehicule <b>a l'arret sur du plat</b>, moteur de preference coupe.
+Ne rien bouger pendant 3 secondes.<br>
+A refaire si le module est remonte ou change de vehicule.
+</p>
+</div>
+
 <div class="card"><h2>Archivage des runs</h2>
-<p class="small">Recupere tous les passages enregistres en RAM sur le module (jusqu'a 8) et les envoie directement sur GitHub.</p>
+<p class="small">Recupere tous les passages enregistres en RAM sur le module (jusqu'a 6) et les envoie directement sur GitHub.</p>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
 <button type="button" class="btn btn3" id="btnGhRuns" style="margin-top:0;" onclick="fetchAndSendToGithub()">Envoyer sur GitHub</button>
 </div>
@@ -113,11 +129,11 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <label for="hid">ID expander Holley (0-2047, # module cote Holley EFI)</label>
 <input id="hid" name="hid" type="number" min="0" max="2047" value="1500">
 
-<label for="gsrc">Source GPS (redemarrage requis)</label>
-<select id="gsrc" name="gsrc">
-<option value="DRAGY">Dragy Lite (simple)</option>
-<option value="DUAL">Dual u-blox (moyenne des 2, GPIO25/26 pour GPS B)</option>
-</select>
+<p class="small" style="margin-top:14px;">
+<b>Source GPS :</b> plus de reglage — depuis la v7 le module detecte seul
+s'il y a un ou deux u-blox au demarrage (GPS A sur GPIO16/17, GPS B sur
+GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
+</p>
 
 <label for="grate">Cadence GPS</label>
 <select id="grate" name="grate">
@@ -128,7 +144,7 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <option value="0">Esclave (ecoute seule, n'impose rien)</option>
 </select>
 
-<label for="dynm">Modele dynamique u-blox (mode dual seulement, le Dragy garde sa config)</label>
+<label for="dynm">Modele dynamique u-blox</label>
 <select id="dynm" name="dynm">
 <option value="4">Automobile</option>
 <option value="6">Airborne &lt;1g</option>
@@ -161,7 +177,7 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 
 <script>
 // =====================================================
-// BLE : memes UUIDs que le firmware Wtech_BPS_Dragy_v5.ino
+// BLE : memes UUIDs que le firmware DRAGLOG_v7.ino
 // =====================================================
 const SVC_UUID      = '7a1e0000-9f2b-4b8e-8f21-3d6c9a1e0000';
 const CHR_TELEMETRY = '7a1e0001-9f2b-4b8e-8f21-3d6c9a1e0000';
@@ -440,6 +456,26 @@ function onTelemetry(ev) {
   document.getElementById('meta').textContent = (j.valid ? 'fix OK' : 'pas de fix') + ' | ' + j.sats + ' sats | ' + j.hz + ' Hz';
   if (j.gfilt != null && j.gfilt != gfilt) { gfilt = j.gfilt; syncGSel(); }
 
+  // [v7] G de l'IMU affiche A COTE de celui derive du GPS, jamais fusionne :
+  // les deux doivent pouvoir etre compares a l'oeil sur des passages reels
+  // avant qu'on envisage quoi que ce soit de commun.
+  var gi = document.getElementById('gimu');
+  var il = document.getElementById('imuLine');
+  if (j.imu) {
+    gi.textContent = (j.iax >= 0 ? '+' : '') + j.iax.toFixed(2);
+    il.style.display = 'block';
+    il.textContent = 'IMU : lat ' + (j.iay >= 0 ? '+' : '') + j.iay.toFixed(2)
+                   + ' G | vert ' + (j.iaz >= 0 ? '+' : '') + j.iaz.toFixed(2)
+                   + ' G | tangage ' + (j.igy >= 0 ? '+' : '') + j.igy.toFixed(1) + ' deg/s'
+                   + ' | ' + j.ihz + ' Hz'
+                   + (j.cal ? ' | calibre' : ' | NON calibre');
+  } else {
+    gi.textContent = '--';
+    il.style.display = 'none';
+  }
+
+  updateCalCard(j);
+
   var p = j.perf;
   // gel automatique du graphique des qu'un run demarre -- reste visible en
   // entier meme apres la fin, jusqu'au clic sur "Reprendre en direct"
@@ -457,6 +493,72 @@ function onTelemetry(ev) {
   document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtVRaw(p.v330raw) + fmtE(p.e330);
   document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtVRaw(p.v660raw) + fmtE(p.e660);
   document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtVRaw(p.v1320raw) + fmtE(p.e1320);
+}
+
+// ---- Calibration IMU -------------------------------------------------
+// Le firmware fait tout le travail ; la page ne fait qu'envoyer "calib"
+// et refleter l'etat qu'il renvoie dans la telemetrie (~5 Hz). Il est
+// important d'afficher AUSSI les refus : un refus silencieux ferait
+// croire a une calibration reussie, ce qui est pire que pas de
+// calibration du tout.
+var CAL_IDLE = 0, CAL_RUNNING = 1, CAL_OK = 2, CAL_REFUSED = 3;
+
+function updateCalCard(j) {
+  var g = document.getElementById('calGrid');
+  var st = document.getElementById('calState');
+  var msg = document.getElementById('calMsg');
+  var btn = document.getElementById('btnCal');
+  if (!g || !st) return;
+
+  if (!j.imu) {
+    st.textContent = 'IMU absent';
+    g.innerHTML = "<div class='small'>Etat</div><div><b id='calState'>IMU absent</b></div>";
+    btn.disabled = true;
+    msg.textContent = 'Aucun capteur detecte au demarrage du module.';
+    return;
+  }
+  btn.disabled = (j.calSt === CAL_RUNNING);
+
+  var rows = [];
+  if (j.calSt === CAL_RUNNING) {
+    rows.push(['Etat', 'capture en cours...']);
+  } else if (j.cal) {
+    rows.push(['Etat', 'calibre']);
+    if (j.calTilt != null) rows.push(['Inclinaison du montage', j.calTilt.toFixed(1) + ' deg']);
+    if (j.calGz != null)   rows.push(['Biais gyro Z', (j.calGz >= 0 ? '+' : '') + j.calGz.toFixed(2) + ' deg/s']);
+    if (j.calScl != null)  rows.push(['Correction d echelle', j.calScl.toFixed(4)]);
+    if (j.calT != null && j.itemp != null) {
+      var d = j.itemp - j.calT;
+      rows.push(['Temperature', j.itemp.toFixed(1) + ' C (calibre a ' + j.calT.toFixed(1) +
+                 ', ecart ' + (d >= 0 ? '+' : '') + d.toFixed(1) + ')']);
+    }
+  } else {
+    rows.push(['Etat', 'NON calibre -- valeurs brutes']);
+  }
+
+  var html = '';
+  rows.forEach(function (r, i) {
+    var id = (i === 0) ? " id='calState'" : '';
+    html += "<div class='small'>" + r[0] + "</div><div><b" + id + ">" + r[1] + "</b></div>";
+  });
+  g.innerHTML = html;
+
+  if (j.calMsg) {
+    msg.textContent = (j.calSt === CAL_REFUSED ? 'Refuse : ' : '') + j.calMsg;
+    msg.style.color = (j.calSt === CAL_REFUSED) ? '#b00' : '#444';
+  }
+}
+
+async function doCalib() {
+  var msg = document.getElementById('calMsg');
+  msg.style.color = '#444';
+  msg.textContent = 'Demande envoyee -- ne rien bouger pendant 3 s...';
+  try {
+    await writeCommand('calib');
+  } catch (e) {
+    msg.style.color = '#b00';
+    msg.textContent = 'Echec d envoi : ' + e;
+  }
 }
 
 function setWin(s) {
@@ -522,16 +624,26 @@ async function refreshState() {
   var rows = [];
   rows.push(['Mode actif', j.mode]);
   rows.push(['Bitrate CAN', j.bitrate]);
-  rows.push(['Source GPS', j.gpsSource]);
-  if (j.dual) {
-    rows.push(['GPS A', (j.gpsA.ok ? 'OK' : 'bring-up') + ', ' + j.gpsA.hz + ' Hz, ' + j.gpsA.sats + ' sats, fix ' + j.gpsA.fix]);
-    rows.push(['GPS B', (j.gpsB.ok ? 'OK' : 'bring-up') + ', ' + j.gpsB.hz + ' Hz, ' + j.gpsB.sats + ' sats, fix ' + j.gpsB.fix]);
-    if (j.speedDiffAB != null) rows.push(['Ecart vitesse A-B', j.speedDiffAB + ' km/h']);
-    rows.push(['Modele dynamique', j.dynModel]);
-    rows.push(['Constellations', j.constellations]);
-  } else {
-    rows.push(['Dragy', j.dragy]);
-    rows.push(['NAV-PVT mesure', j.navPvtHz + ' Hz' + (j.navPvtTargetHz ? ' (cible ' + j.navPvtTargetHz + ')' : ' (cadence libre)')]);
+  // [v7] Detection automatique : 0 = verdict pas encore rendu, 1 = un seul
+  // module (mode mono), 2 = deux modules. Plus de reglage manuel.
+  var det = (j.gpsDetected === 2) ? '2 modules (dual)'
+          : (j.gpsDetected === 1) ? '1 seul module (mono)'
+          : 'detection en cours...';
+  rows.push(['Modules GPS detectes', det]);
+  var fmtGps = function (u) {
+    return (u.ok ? 'OK' : 'bring-up') + ', ' + u.hz + ' Hz, ' + u.sats + ' sats, fix ' + u.fix;
+  };
+  if (j.gpsA) rows.push(['GPS A', fmtGps(j.gpsA)]);
+  if (j.gpsB) rows.push(['GPS B', fmtGps(j.gpsB)]);
+  if (j.speedDiffAB != null) rows.push(['Ecart vitesse A-B', j.speedDiffAB + ' km/h']);
+  rows.push(['Modele dynamique', j.dynModel]);
+  rows.push(['Constellations', j.constellations]);
+
+  if (j.imu) {
+    var it = j.imu.ok ? ('OK, ' + j.imu.hz + ' Hz'
+              + (j.imu.tempC != null ? ', ' + j.imu.tempC.toFixed(1) + ' C' : ''))
+            : 'absent';
+    rows.push(['IMU (LSM6DSOX)', it]);
   }
   if (j.holley) {
     rows.push(['Holley ECU', (j.holley.alive ? 'detecte' : 'absent') + (j.holley.configured ? ', configure' : '') + ' (ID ' + j.holley.id + ')']);
@@ -561,24 +673,13 @@ async function refreshConfig() {
   try { j = JSON.parse(dec.decode(await chrConfig.readValue())); } catch (e) { return; }
   document.getElementById('mode').value = j.mode;
   document.getElementById('hid').value = j.hid;
-  document.getElementById('gsrc').value = j.gsrc;
   document.getElementById('grate').value = j.grate;
   document.getElementById('dynm').value = j.dynm;
   document.getElementById('t50').checked = !!j.t50;
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
   document.getElementById('ltcan').checked = !!j.ltcan;
-  syncDynmState();
 }
-
-function syncDynmState() {
-  var dual = document.getElementById('gsrc').value === 'DUAL';
-  var dynm = document.getElementById('dynm');
-  dynm.disabled = !dual;
-  if (!dual) dynm.value = '4';
-}
-document.getElementById('gsrc').addEventListener('change', syncDynmState);
-syncDynmState();
 
 async function submitConfig(ev) {
   ev.preventDefault();
@@ -598,7 +699,6 @@ async function submitConfig(ev) {
   var cfg = {
     mode: document.getElementById('mode').value,
     hid: parseInt(document.getElementById('hid').value, 10),
-    gsrc: document.getElementById('gsrc').value,
     grate: parseInt(document.getElementById('grate').value, 10),
     dynm: parseInt(document.getElementById('dynm').value, 10),
     t50: document.getElementById('t50').checked ? 1 : 0,
