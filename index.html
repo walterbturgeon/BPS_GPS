@@ -131,10 +131,13 @@ A refaire si le module est remonte ou change de vehicule.
 <label for="hid">ID expander Holley (0-2047, # module cote Holley EFI)</label>
 <input id="hid" name="hid" type="number" min="0" max="2047" value="1500">
 
-<label for="unit">Numero d'unite (nom Bluetooth)</label>
-<select id="unit" name="unit"></select>
+<label for="sfx">Nom Bluetooth (5 caracteres au maximum)</label>
+<input id="sfx" name="sfx" type="text" maxlength="5" value="00001"
+       autocapitalize="characters" autocomplete="off" spellcheck="false"
+       style="width:100%;padding:10px;margin-top:6px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">
 <p class="small">Le module s'annonce sous <b id="unitName">DL_00001</b>.
-Effectif <b>au redemarrage</b> du module.</p>
+Lettres, chiffres, <b>-</b> et <b>_</b> uniquement. Effectif <b>au redemarrage</b> du module.</p>
+<div id="sfxErr" class="small" style="color:#b00;"></div>
 
 <label for="pfft">Distance partielle supplementaire</label>
 <select id="pfft" name="pfft"></select>
@@ -580,14 +583,7 @@ function onTelemetry(ev) {
 // du budget d'annonce, l'UUID de service occupant le reste. Ne pas
 // elargir la plage au dela de 10 sans revoir le format cote firmware.
 (function () {
-  var u = document.getElementById('unit');
-  for (var i = 1; i <= 10; i++) {
-    var o = document.createElement('option');
-    o.value = String(i);
-    o.textContent = 'DL_' + ('0000' + i).slice(-5);
-    u.appendChild(o);
-  }
-  u.addEventListener('change', syncUnitName);
+  document.getElementById('sfx').addEventListener('input', syncUnitName);
 
   var p = document.getElementById('pfft');
   var off = document.createElement('option');
@@ -601,9 +597,24 @@ function onTelemetry(ev) {
   }
 })();
 
+// Meme jeu de caracteres que le firmware ([A-Za-z0-9_-], 1 a 5). On
+// SIGNALE les caracteres refuses au lieu de les retirer en douce : sinon
+// l'utilisateur tape "MA VOIT" et decouvre "DL_MAVOI" sans comprendre.
 function syncUnitName() {
-  var v = parseInt(document.getElementById('unit').value, 10) || 1;
-  document.getElementById('unitName').textContent = 'DL_' + ('0000' + v).slice(-5);
+  var raw = document.getElementById('sfx').value;
+  var filtre = raw.replace(/[^A-Za-z0-9_-]/g, '');   // caracteres retires
+  var ok = filtre.slice(0, 5);                        // puis longueur
+  var err = document.getElementById('sfxErr');
+  document.getElementById('unitName').textContent = 'DL_' + (ok || '?????');
+
+  // Deux causes distinctes, deux messages distincts : dire "caracteres
+  // refuses" a quelqu'un qui a juste tape trop long l'enverrait chercher
+  // au mauvais endroit.
+  if (raw.length === 0)          err.textContent = 'Entrez au moins un caractere.';
+  else if (filtre !== raw)       err.textContent = 'Caracteres refuses : lettres, chiffres, - et _ seulement.';
+  else if (filtre.length > 5)    err.textContent = '5 caracteres au maximum (le nom BLE ne peut pas depasser DL_ + 5).';
+  else                           err.textContent = '';
+  return ok;
 }
 
 // ---- Calibration IMU -------------------------------------------------
@@ -802,7 +813,7 @@ async function refreshConfig() {
   document.getElementById('tzm').value = j.tzm;
   document.getElementById('ltcan').checked = !!j.ltcan;
   document.getElementById('pfft').value = (j.pfft != null ? j.pfft : 0);
-  document.getElementById('unit').value = (j.unit != null ? j.unit : 1);
+  document.getElementById('sfx').value = (j.sfx != null ? j.sfx : '00001');
   syncUnitName();
 }
 
@@ -826,7 +837,7 @@ async function submitConfig(ev) {
     hid: parseInt(document.getElementById('hid').value, 10),
     grate: parseInt(document.getElementById('grate').value, 10),
     pfft: parseInt(document.getElementById('pfft').value, 10),
-    unit: parseInt(document.getElementById('unit').value, 10),
+    sfx: syncUnitName(),
     dynm: parseInt(document.getElementById('dynm').value, 10),
     t50: document.getElementById('t50').checked ? 1 : 0,
     tzh: parseInt(document.getElementById('tzh').value, 10),
