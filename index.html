@@ -267,9 +267,26 @@ function onDisconnected() {
   setStatus('Deconnecte');
 }
 
+// L'ancienne version faisait "if (!chrCommand) return;" -- un echec
+// totalement SILENCIEUX : le bouton affichait "demande envoyee" et il ne
+// se passait rien, sans le moindre indice. On leve maintenant une erreur
+// explicite, que l'appelant affiche.
+//
+// Repli writeValue() : writeValueWithResponse() est recent, et Bluefy est
+// une implementation tierce de Web Bluetooth qui ne l'expose pas forcement.
+// Sans ce repli, un navigateur un peu ancien echoue sans explication utile.
 async function writeCommand(cmd) {
-  if (!chrCommand) return;
-  await chrCommand.writeValueWithResponse(enc.encode(cmd));
+  if (!chrCommand) {
+    throw new Error('non connecte au module (caracteristique COMMAND absente)');
+  }
+  var data = enc.encode(cmd);
+  if (typeof chrCommand.writeValueWithResponse === 'function') {
+    await chrCommand.writeValueWithResponse(data);
+  } else if (typeof chrCommand.writeValue === 'function') {
+    await chrCommand.writeValue(data);          // API plus ancienne
+  } else {
+    throw new Error('ce navigateur ne sait pas ecrire sur une caracteristique BLE');
+  }
 }
 
 // =====================================================
@@ -625,6 +642,11 @@ function syncUnitName() {
 // calibration du tout.
 var CAL_IDLE = 0, CAL_RUNNING = 1, CAL_OK = 2, CAL_REFUSED = 3;
 
+// Dernier etat de calibration recu du module, et QUAND il a change. Sert a
+// detecter qu'une commande est partie sans que le module reagisse.
+var dernierCalSt = null;
+var dernierCalStAt = 0;
+
 function updateCalCard(j) {
   var g = document.getElementById('calGrid');
   var st = document.getElementById('calState');
@@ -639,6 +661,7 @@ function updateCalCard(j) {
     msg.textContent = 'Aucun capteur detecte au demarrage du module.';
     return;
   }
+  if (j.calSt !== dernierCalSt) { dernierCalSt = j.calSt; dernierCalStAt = Date.now(); }
   btn.disabled = (j.calSt === CAL_RUNNING);
 
   var rows = [];
@@ -683,14 +706,37 @@ function updateCalCard(j) {
 
 async function doCalib() {
   var msg = document.getElementById('calMsg');
+
+  // Verifier la connexion AVANT d'annoncer quoi que ce soit : dire
+  // "demande envoyee" alors qu'on n'est pas connecte est exactement ce qui
+  // faisait croire a une panne du module.
+  if (!chrCommand) {
+    msg.style.color = '#b00';
+    msg.textContent = 'Non connecte au module. Touchez "Connecter" en haut de la page, puis reessayez.';
+    return;
+  }
+
   msg.style.color = '#444';
   msg.textContent = 'Demande envoyee -- ne rien bouger pendant 3 s...';
   try {
     await writeCommand('calib');
   } catch (e) {
     msg.style.color = '#b00';
-    msg.textContent = 'Echec d envoi : ' + e;
+    msg.textContent = 'Echec d envoi : ' + (e && e.message ? e.message : e);
+    return;
   }
+
+  // Le module doit repondre dans la telemetrie (~5 Hz) : calSt passe a
+  // RUNNING puis OK/REFUSED. Si rien ne bouge en 6 s, c'est que la commande
+  // est partie mais n'a pas ete traitee -- le dire plutot que de laisser
+  // l'utilisateur devant un message fige.
+  var avant = Date.now();
+  setTimeout(function () {
+    if (dernierCalSt === CAL_RUNNING || dernierCalStAt > avant) return;  // ca a bouge
+    msg.style.color = '#b00';
+    msg.textContent = 'Commande envoyee mais le module n a pas repondu. '
+                    + 'Verifiez que la telemetrie se met a jour (vitesse, G) en haut de la page.';
+  }, 6000);
 }
 
 function setWin(s) {
