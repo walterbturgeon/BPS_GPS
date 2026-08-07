@@ -82,6 +82,7 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <span id="perfSt" class="small" style="font-size:15px;">--</span>
 </div>
 <div class="grid">
+<div class="small" id="pPartLbl" style="display:none;">Distance partielle</div><div id="pPartVal" style="display:none;"><b id="pPart">--</b></div>
 <div class="small">60 pieds</div><div><b id="p60">--</b></div>
 <div class="small">330 pieds</div><div><b id="p330">--</b></div>
 <div class="small">660 pieds (1/8 mi)</div><div><b id="p660">--</b></div>
@@ -108,6 +109,7 @@ A refaire si le module est remonte ou change de vehicule.
 <button type="button" class="btn btn3" id="btnGhRuns" style="margin-top:0;" onclick="fetchAndSendToGithub()">Envoyer sur GitHub</button>
 </div>
 <div id="dumpStatus" class="small" style="margin-top:10px;"></div>
+<div id="ghTokState" class="small" style="margin-top:6px;"></div>
 <div class="small" style="margin-top:6px;"><a href="#" onclick="resetGhToken();return false;">changer le jeton GitHub</a></div>
 </div>
 
@@ -128,6 +130,17 @@ A refaire si le module est remonte ou change de vehicule.
 
 <label for="hid">ID expander Holley (0-2047, # module cote Holley EFI)</label>
 <input id="hid" name="hid" type="number" min="0" max="2047" value="1500">
+
+<label for="unit">Numero d'unite (nom Bluetooth)</label>
+<select id="unit" name="unit"></select>
+<p class="small">Le module s'annonce sous <b id="unitName">DL_00001</b>.
+Effectif <b>au redemarrage</b> du module.</p>
+
+<label for="pfft">Distance partielle supplementaire</label>
+<select id="pfft" name="pfft"></select>
+<p class="small">Jalon libre en plus des 60 / 330 / 660 / 1320 pieds,
+par pas de 50 pieds. Meme calcul que les autres (temps depuis le rollout
+1 pied, vitesse trap sur 66 pieds).</p>
 
 <p class="small" style="margin-top:14px;">
 <b>Source GPS :</b> plus de reglage — depuis la v7 le module detecte seul
@@ -300,7 +313,63 @@ function getGhToken() { return localStorage.getItem('ghToken') || ''; }
 function resetGhToken() {
   localStorage.removeItem('ghToken');
   document.getElementById('dumpStatus').textContent = 'Jeton GitHub efface -- redemande au prochain envoi.';
+  showGhTokenState();
 }
+
+// Etat du jeton, sans jamais le reafficher en clair : seulement les 4
+// derniers caracteres, de quoi verifier qu'on a bien le bon.
+function showGhTokenState() {
+  var el = document.getElementById('ghTokState');
+  if (!el) return;
+  var t = getGhToken();
+  if (!t) {
+    el.textContent = 'Aucun jeton enregistre sur cet appareil.';
+    el.style.color = '#555';
+    return;
+  }
+  var tail = t.length > 4 ? t.slice(-4) : '****';
+  el.textContent = (ghTokenJustLoaded ? 'Jeton importe par QR ' : 'Jeton enregistre ')
+                 + '(termine par ...' + tail + ').';
+  el.style.color = ghTokenJustLoaded ? '#0a6' : '#555';
+}
+
+// [v7.2] Jeton par QR code.
+//
+// Le QR encode l'URL de la page suivie de "#tok=<PAT>". On lit le FRAGMENT
+// et pas un parametre "?tok=" : ce qui suit le # n'est jamais transmis au
+// serveur, donc le jeton ne part pas chez GitHub Pages au chargement.
+//
+// Le fragment est efface de la barre d'adresse ET de l'entree d'historique
+// des qu'il est lu (history.replaceState) : sans ca le jeton resterait
+// visible dans l'historique du navigateur et dans un partage d'URL.
+//
+// Aucune API camera n'est utilisee : c'est l'app Camera du telephone qui
+// scanne et ouvre l'URL. BarcodeDetector n'existe pas sous WebKit (donc
+// pas dans Bluefy), une lecture camera integree ne marcherait pas la ou on
+// en a justement besoin.
+// Declare AVANT l'IIFE : sinon le "var ... = false" s'executerait apres et
+// ecraserait le true pose a l'interieur (hoisting de var).
+var ghTokenJustLoaded = false;
+
+function readTokenFromHash() {
+  try {
+    var h = location.hash || '';
+    var m = h.match(/[#&]tok=([^&]+)/);
+    if (!m) return;
+    var tok = decodeURIComponent(m[1]).trim();
+
+    // On efface le fragment AVANT toute autre chose : meme si le stockage
+    // echoue ensuite, le jeton ne doit pas rester dans l'URL.
+    var clean = location.pathname + location.search;
+    if (history && history.replaceState) history.replaceState(null, '', clean);
+    else location.hash = '';
+
+    if (!tok) return;
+    localStorage.setItem('ghToken', tok);
+    ghTokenJustLoaded = true;
+  } catch (e) { /* localStorage indisponible : on ignore silencieusement */ }
+}
+readTokenFromHash();   // au chargement, avant tout affichage
 
 // API Contents GitHub : PUT cree/remplace un fichier. Le jeton (PAT avec
 // droits Contents sur le repo) est demande une fois puis garde en
@@ -489,10 +558,52 @@ function onTelemetry(ev) {
 
   if (p.roll != null) { var rr = p.roll / 1000; if (Math.abs(rr - ofs) > 0.001) { ofs = rr; syncSel(); } }
   document.getElementById('perfSt').textContent = (p.sim ? 'SIM — ' : '') + perfLabel(p.st, p.el);
+
+  // [v7.2] jalon partiel : la ligne n'apparait que s'il est active
+  var showPart = (p.pft > 0);
+  document.getElementById('pPartLbl').style.display = showPart ? '' : 'none';
+  document.getElementById('pPartVal').style.display = showPart ? '' : 'none';
+  if (showPart) {
+    document.getElementById('pPartLbl').textContent = p.pft + ' pieds';
+    document.getElementById('pPart').textContent =
+      fmtT(p.tp) + fmtV(p.vp) + fmtVRaw(p.vpraw) + fmtE(p.ep);
+  }
+
   document.getElementById('p60').textContent = fmtT(p.t60);
   document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtVRaw(p.v330raw) + fmtE(p.e330);
   document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtVRaw(p.v660raw) + fmtE(p.e660);
   document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtVRaw(p.v1320raw) + fmtE(p.e1320);
+}
+
+// ---- Menus generes (numero d unite / distance partielle) -------------
+// Le nom BLE fait exactement 8 caracteres ("DL_00001") : c'est la limite
+// du budget d'annonce, l'UUID de service occupant le reste. Ne pas
+// elargir la plage au dela de 10 sans revoir le format cote firmware.
+(function () {
+  var u = document.getElementById('unit');
+  for (var i = 1; i <= 10; i++) {
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = 'DL_' + ('0000' + i).slice(-5);
+    u.appendChild(o);
+  }
+  u.addEventListener('change', syncUnitName);
+
+  var p = document.getElementById('pfft');
+  var off = document.createElement('option');
+  off.value = '0'; off.textContent = 'aucune';
+  p.appendChild(off);
+  for (var d = 50; d <= 1300; d += 50) {
+    var o2 = document.createElement('option');
+    o2.value = String(d);
+    o2.textContent = d + ' pieds';
+    p.appendChild(o2);
+  }
+})();
+
+function syncUnitName() {
+  var v = parseInt(document.getElementById('unit').value, 10) || 1;
+  document.getElementById('unitName').textContent = 'DL_' + ('0000' + v).slice(-5);
 }
 
 // ---- Calibration IMU -------------------------------------------------
@@ -531,6 +642,16 @@ function updateCalCard(j) {
       var d = j.itemp - j.calT;
       rows.push(['Temperature', j.itemp.toFixed(1) + ' C (calibre a ' + j.calT.toFixed(1) +
                  ', ecart ' + (d >= 0 ? '+' : '') + d.toFixed(1) + ')']);
+    }
+    // [v7.2] Lacet : appris en roulant, pas au repos. yawN dit ou en est
+    // la convergence -- une valeur affichee avec 0 evenement ne veut rien
+    // dire, il faut le montrer clairement plutot que d'afficher 0.0 deg.
+    if (j.yaw != null) {
+      var yn = j.yawN || 0;
+      var etat = (yn === 0) ? 'pas encore appris'
+               : (yn < 25)  ? 'en cours (' + yn + ' evenements)'
+               : 'converge (' + yn + ' evenements)';
+      rows.push(['Alignement lacet', (j.yaw >= 0 ? '+' : '') + j.yaw.toFixed(1) + ' deg — ' + etat]);
     }
   } else {
     rows.push(['Etat', 'NON calibre -- valeurs brutes']);
@@ -612,6 +733,7 @@ function draw() {
   x.stroke();
 }
 setWin(10);
+showGhTokenState();   // etat du jeton des le chargement (import QR inclus)
 
 // =====================================================
 // Etat (lecture seule, rafraichie toutes les 3s pendant la connexion)
@@ -679,6 +801,9 @@ async function refreshConfig() {
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
   document.getElementById('ltcan').checked = !!j.ltcan;
+  document.getElementById('pfft').value = (j.pfft != null ? j.pfft : 0);
+  document.getElementById('unit').value = (j.unit != null ? j.unit : 1);
+  syncUnitName();
 }
 
 async function submitConfig(ev) {
@@ -700,6 +825,8 @@ async function submitConfig(ev) {
     mode: document.getElementById('mode').value,
     hid: parseInt(document.getElementById('hid').value, 10),
     grate: parseInt(document.getElementById('grate').value, 10),
+    pfft: parseInt(document.getElementById('pfft').value, 10),
+    unit: parseInt(document.getElementById('unit').value, 10),
     dynm: parseInt(document.getElementById('dynm').value, 10),
     t50: document.getElementById('t50').checked ? 1 : 0,
     tzh: parseInt(document.getElementById('tzh').value, 10),
