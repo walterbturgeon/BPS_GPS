@@ -585,14 +585,18 @@ function onTelemetry(ev) {
   document.getElementById('pPartVal').style.display = showPart ? '' : 'none';
   if (showPart) {
     document.getElementById('pPartLbl').textContent = p.pft + ' pieds';
-    document.getElementById('pPart').textContent =
-      fmtT(p.tp) + fmtV(p.vp) + fmtVRaw(p.vpraw) + fmtE(p.ep);
+    document.getElementById('pPart').textContent = fmtT(p.tp) + fmtV(p.vp);
   }
 
+  // [v7.3.01] Vitesse brute et ecart de position retires de l'affichage
+  // direct : une notification BLE ne peut pas depasser MTU-3 octets, et
+  // ces champs faisaient repasser la limite des que les 4 jalons etaient
+  // atteints -- l'affichage se figeait pile avant le 1320. Ils restent
+  // dans le journal serie et dans le dump archive sur GitHub.
   document.getElementById('p60').textContent = fmtT(p.t60);
-  document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330) + fmtVRaw(p.v330raw) + fmtE(p.e330);
-  document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660) + fmtVRaw(p.v660raw) + fmtE(p.e660);
-  document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320) + fmtVRaw(p.v1320raw) + fmtE(p.e1320);
+  document.getElementById('p330').textContent = fmtT(p.t330) + fmtV(p.v330);
+  document.getElementById('p660').textContent = fmtT(p.t660) + fmtV(p.v660);
+  document.getElementById('p1320').textContent = fmtT(p.t1320) + fmtV(p.v1320);
 }
 
 // ---- Menus generes (numero d unite / distance partielle) -------------
