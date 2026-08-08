@@ -1,0 +1,3 @@
+[dump] === board=68871255F188 fw=v7.3.02 -- 0 run(s) en memoire ===
+[dump] (aucun run enregistre depuis le demarrage)
+[dump] === fin ===
