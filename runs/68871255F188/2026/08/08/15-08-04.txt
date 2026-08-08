@@ -1,0 +1,3 @@
+[dump] === board=68871255F188 fw=v7.5.00 -- 0 run(s) en flash ===
+[dump] (aucun run enregistre -- la flash est vide)
+[dump] === fin ===
