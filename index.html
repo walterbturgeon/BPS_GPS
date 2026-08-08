@@ -329,6 +329,19 @@ function fetchRunsBle() {
   });
 }
 
+// Un copier-coller depuis un courriel sur telephone ramene tres souvent des
+// caracteres parasites : espace ou retour de ligne en fin de selection,
+// guillemets si le client mail a "embelli" le texte, espaces insecables.
+// Sans nettoyage, GitHub renvoie 401, la page efface le jeton, et on tourne
+// en rond sans savoir pourquoi.
+function nettoieJeton(t) {
+  if (!t) return '';
+  return String(t)
+    .replace(/[ ​-‍﻿]/g, '')  // insecables, zero-width
+    .replace(/\s+/g, '')                          // espaces, tabs, retours ligne
+    .replace(/^["'<]+|[">']+$/g, '');              // guillemets, chevrons de mail
+}
+
 function getGhToken() { return localStorage.getItem('ghToken') || ''; }
 function resetGhToken() {
   localStorage.removeItem('ghToken');
@@ -376,7 +389,7 @@ function readTokenFromHash() {
     var h = location.hash || '';
     var m = h.match(/[#&]tok=([^&]+)/);
     if (!m) return;
-    var tok = decodeURIComponent(m[1]).trim();
+    var tok = nettoieJeton(decodeURIComponent(m[1]));
 
     // On efface le fragment AVANT toute autre chose : meme si le stockage
     // echoue ensuite, le jeton ne doit pas rester dans l'URL.
@@ -399,33 +412,57 @@ async function uploadToGithub(text, board) {
   if (!token) {
     token = prompt('Jeton GitHub (Personal Access Token, droits Contents sur ' + GH_REPO + ') :');
     if (!token) throw new Error('jeton requis');
+    token = nettoieJeton(token);
+    if (!token) throw new Error('jeton vide apres nettoyage');
     localStorage.setItem('ghToken', token);
   }
-  // runs/<id_esp32>/AAAA/MM/JJ/HH-MM.txt -- dossiers imbriques par date,
-  // faciles a parcourir sur GitHub (heure locale du telephone au moment de l'envoi)
+  // runs/<id_esp32>/AAAA/MM/JJ/HH-MM-SS.txt -- dossiers imbriques par date,
+  // faciles a parcourir sur GitHub (heure locale du telephone a l'envoi).
+  //
+  // Les SECONDES sont dans le nom depuis v7.3.03 : sans elles, deux envois
+  // dans la meme minute visaient le meme fichier, et l'API Contents renvoie
+  // alors 422 (creation refusee : le fichier existe et on ne fournit pas son
+  // sha). Un passage aurait ete perdu sans explication comprehensible.
   var d = new Date();
   var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
-  var path = 'runs/' + (board || 'unknown')
+  var base = 'runs/' + (board || 'unknown')
     + '/' + d.getFullYear()
     + '/' + pad2(d.getMonth() + 1)
     + '/' + pad2(d.getDate())
-    + '/' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '.txt';
+    + '/' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
   var b64 = btoa(unescape(encodeURIComponent(text)));
-  var res = await fetch('https://api.github.com/repos/' + GH_REPO + '/contents/' + path, {
-    method: 'PUT',
-    headers: {
-      'Authorization': 'token ' + token,
-      'Accept': 'application/vnd.github+json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ message: 'runs: ' + path, content: b64, branch: GH_BRANCH })
-  });
-  if (!res.ok) {
-    if (res.status === 401) { localStorage.removeItem('ghToken'); }
+
+  // On n'ECRASE jamais un fichier existant : des donnees de passage ont trop
+  // de valeur. En cas de collision, on ajoute un suffixe et on reessaie.
+  for (var essai = 0; essai < 5; essai++) {
+    var path = base + (essai === 0 ? '' : '-' + (essai + 1)) + '.txt';
+    var res = await fetch('https://api.github.com/repos/' + GH_REPO + '/contents/' + path, {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'token ' + token,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message: 'runs: ' + path, content: b64, branch: GH_BRANCH })
+    });
+    if (res.ok) return path;
+
     var err = await res.text();
+    if (res.status === 422 && essai < 4) continue;   // collision : nom suivant
+
+    // Messages explicites : "GitHub 404" tout seul n'aide personne a savoir
+    // s'il faut changer le jeton, ses droits, ou le nom du depot.
+    if (res.status === 401) {
+      localStorage.removeItem('ghToken');
+      throw new Error('401 : jeton invalide ou expire. Il a ete efface, on vous le redemandera.');
+    }
+    if (res.status === 403) throw new Error('403 : jeton sans droit d ecriture (il faut Contents: Read and write).');
+    if (res.status === 404) throw new Error('404 : depot ' + GH_REPO + ' introuvable, ou jeton sans acces a ce depot.');
+    if (res.status === 409) throw new Error('409 : conflit de branche (' + GH_BRANCH + ' existe-t-elle ?).');
+    if (res.status === 422) throw new Error('422 : impossible de trouver un nom de fichier libre.');
     throw new Error('GitHub ' + res.status + ' : ' + err);
   }
-  return path;
+  throw new Error('envoi impossible apres plusieurs tentatives');
 }
 
 // Un seul bouton : recupere les runs via BLE puis les envoie directement sur
