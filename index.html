@@ -81,6 +81,11 @@ Ce navigateur ne supporte pas le Bluetooth Web. Utilisez Chrome sur Android, ou 
 <select id="ofs" onchange="setOfs()" style="width:auto;padding:6px;margin:0;"></select></label>
 <span id="perfSt" class="small" style="font-size:15px;">--</span>
 </div>
+<div id="tbCard" style="display:none;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;border-radius:10px;background:#f0f0f0;">
+<span id="tbLed" style="width:20px;height:20px;border-radius:50%;background:#bbb;flex:none;box-shadow:inset 0 0 0 2px rgba(0,0,0,.15);"></span>
+<b id="tbTxt" style="font-size:17px;">Transbrake --</b>
+<span id="tbHint" class="small" style="margin-left:auto;"></span>
+</div>
 <div class="grid">
 <div class="small" id="pPartLbl" style="display:none;">Distance partielle</div><div id="pPartVal" style="display:none;"><b id="pPart">--</b></div>
 <div class="small">60 pieds</div><div><b id="p60">--</b></div>
@@ -615,6 +620,41 @@ function onTelemetry(ev) {
 
   if (p.roll != null) { var rr = p.roll / 1000; if (Math.abs(rr - ofs) > 0.001) { ofs = rr; syncSel(); } }
   document.getElementById('perfSt').textContent = (p.sim ? 'SIM — ' : '') + perfLabel(p.st, p.el);
+
+  // [v7.7] Temoin transbrake. Le module n'envoie "tb"/"tbs" qu'en mode
+  // Holley : hors de ce mode la carte reste masquee plutot que d'afficher
+  // un temoin qui ne voudrait rien dire.
+  var tbCard = document.getElementById('tbCard');
+  if (p.tb == null) {
+    tbCard.style.display = 'none';
+  } else {
+    tbCard.style.display = 'flex';
+    var led = document.getElementById('tbLed');
+    var txt = document.getElementById('tbTxt');
+    var hint = document.getElementById('tbHint');
+    if (!p.tbs) {
+      // Aucune sortie vue depuis le demarrage : on ne sait pas encore si
+      // l'ECU en pilote une. Le dire, plutot que d'afficher "relache" --
+      // ce qui laisserait croire que tout est branche et fonctionnel.
+      led.style.background = '#bbb';
+      txt.textContent = 'Transbrake — en attente';
+      txt.style.color = '#555';
+      hint.textContent = 'aucune sortie recue de l ECU';
+      tbCard.style.background = '#f0f0f0';
+    } else if (p.tb) {
+      led.style.background = '#d00';
+      txt.textContent = 'TRANSBRAKE ENGAGE';
+      txt.style.color = '#900';
+      hint.textContent = 'le chrono partira au relachement';
+      tbCard.style.background = '#fde8e8';
+    } else {
+      led.style.background = '#0a6';
+      txt.textContent = 'Transbrake relache';
+      txt.style.color = '#064';
+      hint.textContent = 'pret';
+      tbCard.style.background = '#e8f7ee';
+    }
+  }
 
   // [v7.2] jalon partiel : la ligne n'apparait que s'il est active
   var showPart = (p.pft > 0);

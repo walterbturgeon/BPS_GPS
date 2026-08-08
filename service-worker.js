@@ -1,4 +1,4 @@
-const CACHE = 'draglog-v79';
+const CACHE = 'draglog-v80';
 const ASSETS = ['./', './index.html', './manifest.json', './logo.svg', './icon-192.webp', './icon-512.webp'];
 
 self.addEventListener('install', (ev) => {
