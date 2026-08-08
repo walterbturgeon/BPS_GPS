@@ -698,9 +698,28 @@ function updateCalCard(j) {
   });
   g.innerHTML = html;
 
-  if (j.calMsg) {
-    msg.textContent = (j.calSt === CAL_REFUSED ? 'Refuse : ' : '') + j.calMsg;
-    msg.style.color = (j.calSt === CAL_REFUSED) ? '#b00' : '#444';
+  // [v7.2.09] Le module envoie un CODE, plus le texte : une notification BLE
+  // est plafonnee a MTU-3 octets, et le message en clair coutait ~45 octets
+  // par trame. Le depassement de cette limite ne tronque pas la trame, il
+  // l'empeche totalement de partir -- c'est ce qui figeait la page.
+  var CAL_ERRS = {
+    0: '',
+    1: 'IMU muet : trop peu d echantillons.',
+    2: 'Vehicule en mouvement : la gravite mesuree n est pas coherente.',
+    3: 'Trop de vibrations : moteur au ralenti ?',
+    4: 'Le module bouge ou est manipule.',
+    5: 'Rotation reelle detectee, ce n est pas un biais.',
+    6: 'IMU absent.'
+  };
+  if (j.calSt === CAL_REFUSED) {
+    msg.textContent = 'Refuse : ' + (CAL_ERRS[j.calErr] || 'raison inconnue (' + j.calErr + ')');
+    msg.style.color = '#b00';
+  } else if (j.calSt === CAL_RUNNING) {
+    msg.textContent = 'Capture en cours -- ne rien bouger...';
+    msg.style.color = '#444';
+  } else if (j.calSt === CAL_OK) {
+    msg.textContent = 'Calibration enregistree.';
+    msg.style.color = '#0a6';
   }
 }
 
