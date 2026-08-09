@@ -180,6 +180,15 @@ GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
 </select>
 <div class="small">Les deux modeles n'annoncent pas le transbrake au meme endroit. Le module n'ecoute que la source du modele choisi ; l'autre reste journalisee mais ne demarre plus le chrono.</div>
 
+<label for="imuf">Filtre IMU (accelerometre + gyroscope)</label>
+<select id="imuf" name="imuf">
+<option value="0">Aucun -- brut, pour comparer</option>
+<option value="1">Leger -- accel 20.8 Hz / gyro 23.1 Hz</option>
+<option value="2">Normal -- accel 10.4 Hz / gyro 12.2 Hz</option>
+<option value="3">Fort -- accel 4.6 Hz / gyro 12.2 Hz</option>
+</select>
+<div class="small">Filtre interne du capteur, applique avant l'echantillonnage. Sans lui, les vibrations au-dessus de 12 Hz se replient et deviennent indiscernables du vrai mouvement de caisse. <b>Normal</b> convient a la plupart des voitures. <b>Aucun</b> sert a comparer un passage brut a un passage filtre sur la meme voiture. Effet immediat, sans redemarrage.</div>
+
 <label style="margin-top:16px;"><input type="checkbox" id="t50" name="t50"> Simuler 50 km/h (tous les modes de sortie)</label>
 
 <div class="row">
@@ -1025,6 +1034,7 @@ async function refreshConfig() {
   document.getElementById('grate').value = j.grate;
   document.getElementById('dynm').value = j.dynm;
   if (j.hecu != null) document.getElementById('hecu').value = j.hecu;
+  if (j.imuf != null) document.getElementById('imuf').value = j.imuf;
   document.getElementById('t50').checked = !!j.t50;
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
@@ -1057,6 +1067,7 @@ async function submitConfig(ev) {
     sfx: syncUnitName(),
     dynm: parseInt(document.getElementById('dynm').value, 10),
     hecu: parseInt(document.getElementById('hecu').value, 10),
+    imuf: parseInt(document.getElementById('imuf').value, 10),
     t50: document.getElementById('t50').checked ? 1 : 0,
     tzh: parseInt(document.getElementById('tzh').value, 10),
     tzm: parseInt(document.getElementById('tzm').value, 10),
