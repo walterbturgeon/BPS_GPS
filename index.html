@@ -128,8 +128,8 @@ A refaire si le module est remonte ou change de vehicule.
 <label for="mode">Mode CAN</label>
 <select id="mode" name="mode">
 <option value="LINK">Link AEM 30-2206</option>
-<option value="FUELTECH">FuelTech</option>
-<option value="VAG_WHEELSPEED">VAG Wheel Speed</option>
+<option value="FUELTECH">FuelTech -- trame GPS</option>
+<option value="VAG_WHEELSPEED">FuelTech -- vitesse de roue + jalons</option>
 <option value="HOLLEY">Holley Expander (injection vitesse)</option>
 </select>
 
@@ -179,6 +179,14 @@ GPIO25/26). Voir la carte <b>Etat</b> pour le verdict.
 <option value="1">Dominator -- sortie 0 (canal 8)</option>
 </select>
 <div class="small">Les deux modeles n'annoncent pas le transbrake au meme endroit. Le module n'ecoute que la source du modele choisi ; l'autre reste journalisee mais ne demarre plus le chrono.</div>
+
+<label for="strig">Entree physique de depart (GPIO34)</label>
+<select id="strig" name="strig">
+<option value="0">Desactivee</option>
+<option value="1">Front montant -- relachement d'un contact a la masse</option>
+<option value="2">Front descendant</option>
+</select>
+<div class="small">Pull-up externe obligatoire : 10k entre GPIO34 et 3V3, contact entre GPIO34 et la masse. <b>Jamais de 12 V sur cette broche.</b> Verifie la polarite au moniteur serie : le champ <code>pin=</code> doit basculer H/L quand tu actionnes le contact.</div>
 
 <label for="imuf">Filtre IMU (accelerometre + gyroscope)</label>
 <select id="imuf" name="imuf">
@@ -1035,6 +1043,7 @@ async function refreshConfig() {
   document.getElementById('dynm').value = j.dynm;
   if (j.hecu != null) document.getElementById('hecu').value = j.hecu;
   if (j.imuf != null) document.getElementById('imuf').value = j.imuf;
+  if (j.strig != null) document.getElementById('strig').value = j.strig;
   document.getElementById('t50').checked = !!j.t50;
   document.getElementById('tzh').value = j.tzh;
   document.getElementById('tzm').value = j.tzm;
@@ -1068,6 +1077,7 @@ async function submitConfig(ev) {
     dynm: parseInt(document.getElementById('dynm').value, 10),
     hecu: parseInt(document.getElementById('hecu').value, 10),
     imuf: parseInt(document.getElementById('imuf').value, 10),
+    strig: parseInt(document.getElementById('strig').value, 10),
     t50: document.getElementById('t50').checked ? 1 : 0,
     tzh: parseInt(document.getElementById('tzh').value, 10),
     tzm: parseInt(document.getElementById('tzm').value, 10),
