@@ -1,0 +1,4 @@
+[dump] RUN #1 heure=19:00:49 src=ENTREE_PIN rollout_ms=0 unit=ALLO2 dyn=4 rate_ms=40 gps=1 pre=0 imuf=2/7 ecu=HP statut=ABANDON
+[dump] CAL cal=0 gxo_cdps=0 gyo_cdps=0 gzo_cdps=0 cal_tempC=0 run_tempC=27
+[dump] colonnes: R,elapsed_ms,kmh_x100,dist_ft,ax_mg,ay_mg,az_mg,gx_ds10,gy_ds10,gz_ds10
+[dump] FIN RUN #1 t60=0 t330=0 t660=0 t1320=0
